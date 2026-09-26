@@ -1,60 +1,164 @@
-# EnterpriseOps-Agent: Enterprise AI Operations Agent
+# EnterpriseOps Agent 🤖
 
-Autonomous enterprise operations agent system where an employee can issue multi-step operational directives (e.g., *"Find the latest sales report, summarize the important changes, create a task for the finance team, and send the summary to the manager"*), executing workflows across Gmail, Drive, Slack, Calendar via MCP servers with human-in-the-loop governance.
+> **Autonomous AI Operations Agent** — Multi-step workflow execution across enterprise tools with human-in-the-loop governance, RBAC, cryptographic audit logging, and real-time observability.
+
+[![Python](https://img.shields.io/badge/Python-3.11+-blue?logo=python)](https://python.org)
+[![Next.js](https://img.shields.io/badge/Next.js-16-black?logo=nextdotjs)](https://nextjs.org)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.115-009688?logo=fastapi)](https://fastapi.tiangolo.com)
+[![LangGraph](https://img.shields.io/badge/LangGraph-0.2-purple)](https://langchain-ai.github.io/langgraph/)
+[![License](https://img.shields.io/badge/License-MIT-green)](LICENSE)
 
 ---
 
-## 🏗️ Architecture Overview
+## 🚨 The Problem
+
+Modern enterprise teams waste enormous time on **repetitive, multi-step operational workflows** that span disconnected tools:
+
+- An employee needs to **find a sales report → summarize it → create a Jira task → email the manager** — but each step lives in a different tool (Google Drive, Jira, Gmail), requiring manual context-switching.
+- **Critical actions** (sending emails to executives, posting to Slack channels) go out **without any approval process**, creating compliance and security risks.
+- **No one knows what the AI did.** When an AI assistant takes actions on behalf of users, there is no audit trail, no role enforcement, and no way to stop runaway automation.
+- Different employees have **different permission levels**, but most AI tools apply a one-size-fits-all approach — a junior intern can trigger the same actions as a VP.
+- Operations teams have **zero visibility** into how their AI agents perform: which tools fail, which roles trigger approvals, where latency spikes occur.
+
+---
+
+## ✅ How I Solved It
+
+**EnterpriseOps Agent** is a production-grade autonomous operations platform that solves each problem systematically:
+
+### 1. 🔁 Autonomous Multi-Step Workflow Engine (Phase 1 & 2)
+Instead of switching between tools manually, employees issue a **single natural language directive**:
+> *"Find the latest sales report, summarize the key changes, create a task for the finance team, and send the summary to the manager."*
+
+A **LangGraph StateGraph** decomposes this into a structured plan, executes each step in order using the correct enterprise tool, and streams real-time progress back to the UI via **Server-Sent Events (SSE)**.
+
+**Agent Loop:** `Plan → Select Tool → Check Guardrails → Execute → Observe → Validate → Next Step`
+
+### 2. 📚 Enterprise Knowledge Retrieval (Phase 3)
+The agent can search and reason over **internal company documents** using a **RAG (Retrieval-Augmented Generation)** pipeline:
+- Documents are embedded into **3072-dimensional vectors** using Google's text-embedding model
+- Stored in **pgvector** (PostgreSQL vector extension) or an in-memory embedded store
+- Retrieved using **cosine similarity** search — the agent cites its sources with similarity scores
+
+### 3. 🔌 Real Enterprise Tool Integrations via MCP (Phase 4)
+The agent connects to **5 enterprise tools** through the official **Model Context Protocol (MCP)** SDK (JSON-RPC 2.0):
+
+| MCP Server | Tools Available |
+|---|---|
+| **Google Drive MCP** | Search files, read documents, create drafts |
+| **Gmail MCP** | List messages, create drafts, send emails |
+| **Slack MCP** | List channels, read history, post messages |
+| **Google Calendar MCP** | List events, create events, check conflicts |
+| **Enterprise Tasks MCP** | Create Jira/Linear tickets, get status, update tickets |
+
+### 4. 🛡️ Safety, RBAC & Human Approval Gates (Phase 5)
+Every tool invocation passes through a **3-layer security guardrail**:
+
+1. **Circuit Breaker** — An emergency kill switch that instantly freezes all autonomous operations enterprise-wide
+2. **RBAC Policy Matrix** — 24 tools mapped to role requirements (`EMPLOYEE → MANAGER → ADMIN`). Insufficient role = action denied & logged
+3. **Human Approval Gate** — Sensitive actions (e.g. `gmail_send_message`) trigger a **LangGraph `interrupt()`**, pausing the agent mid-workflow until a qualified supervisor approves or rejects
+
+All decisions are written to a **SHA-256 cryptographically chained audit ledger** — tamper-evident and fully queryable.
+
+### 5. 📊 Real-Time Observability Dashboard (Phase 6)
+A full analytics dashboard gives ops teams live visibility into:
+- **KPI cards**: Total calls, success rate, block rate, approval rate, avg/P95 latency, unique actors
+- **Time-series area chart**: Tool call volume trends (success vs. blocked) over configurable windows
+- **Tool breakdown table**: Per-tool call count, success rate, avg latency, blocked count
+- **Role activity bar chart**: EMPLOYEE / MANAGER / ADMIN usage split
+- **Live activity feed**: Last N tool executions with timestamps and outcomes
+
+---
+
+## 🏗️ Architecture
 
 ```
 User (Next.js App Router UI)
        │
        ▼ (SSE Streaming / REST)
-FastAPI Backend Gateway
+FastAPI Backend Gateway  (/api/chat, /api/governance, /api/mcp, /api/metrics)
        │
        ▼
-LangGraph Agent Engine (Phase 2+)
- ├── Planner Node
- ├── Memory (Short-Term: Redis | Long-Term: PostgreSQL + pgvector)
- ├── Tool Selector Node
- ├── Human Approval Gate (Phase 5)
- └── Tool Execution Node
+LangGraph StateGraph Agent Engine
+ ├── Planner Node         (Gemini → decompose directive into steps)
+ ├── Tool Selector Node   (Guardrail check: Circuit Breaker → RBAC → Approval Gate)
+ ├── Human Approval Gate  (LangGraph interrupt/resume — supervisor clearance)
+ ├── Executor Node        (Run MCP tool / RAG / analysis)
+ ├── Validator Node       (Advance step index, check completion)
+ └── Synthesizer Node     (Gemini → generate final executive debrief)
        │
-       ├──────────────┬──────────────┬──────────────┐
-       ▼              ▼              ▼              ▼
-  [Gmail MCP]    [Drive MCP]    [Slack MCP]   [Calendar MCP]
-```
+       ├── [Gmail MCP]    [Drive MCP]    [Slack MCP]   [Calendar MCP]   [Tasks MCP]
+       │
+       └── [RAG Engine]  (pgvector / embedded → 3072-dim cosine similarity)
 
-### Core Agent Loop
-> **Reason → Plan → Select Tool → Execute → Observe → Validate → Continue / Retry / Ask Human**
+Governance Layer (cross-cutting):
+ ├── RBAC Policy Engine   (24-tool policy matrix, role hierarchy)
+ ├── SHA-256 Audit Ledger (cryptographically chained, tamper-evident)
+ ├── Circuit Breaker      (emergency kill switch, admin-controlled)
+ └── Metrics Store        (in-memory time-series, KPI aggregation)
+```
 
 ---
 
-## 📁 Monorepo Structure
+## 🧰 Tech Stack
+
+| Layer | Technology |
+|---|---|
+| **Frontend** | Next.js 16 (App Router), React, Tailwind CSS, Lucide Icons |
+| **Backend** | FastAPI, Python 3.11+, Uvicorn, SSE (Server-Sent Events) |
+| **AI / LLM** | Google Gemini 2.5 Flash (via `google-genai` SDK) |
+| **Agent Framework** | LangGraph (StateGraph, interrupt/resume, MemorySaver) |
+| **RAG / Embeddings** | Google text-embedding-004 (3072-dim), pgvector / in-memory store |
+| **MCP Protocol** | Official `mcp` SDK v2.2.0 (JSON-RPC 2.0) |
+| **Governance** | Custom RBAC engine, SHA-256 audit chaining, circuit breaker |
+| **Observability** | In-memory time-series metrics store, KPI aggregation |
+| **Containerization** | Docker, Docker Compose (Postgres + pgvector, Redis, FastAPI, Next.js) |
+
+---
+
+## 📁 Project Structure
 
 ```
 AI_Operation_agent/
 ├── backend/
 │   ├── app/
-│   │   ├── config.py           # Pydantic environment configuration
-│   │   ├── main.py             # FastAPI entry point & CORS
+│   │   ├── agent/
+│   │   │   ├── graph.py          # LangGraph StateGraph definition
+│   │   │   ├── nodes.py          # Planner, ToolSelector, Gate, Executor, Synthesizer
+│   │   │   ├── state.py          # AgentState TypedDict
+│   │   │   └── tools.py          # Tool registry & execution
+│   │   ├── governance/
+│   │   │   ├── audit.py          # SHA-256 chained AuditLogger
+│   │   │   ├── guardrails.py     # 3-layer guardrail validation
+│   │   │   ├── models.py         # Pydantic models (AuditRecord, PolicyRule, etc.)
+│   │   │   └── policies.py       # RBAC policy matrix & PolicyEngine
+│   │   ├── mcp/
+│   │   │   └── servers/          # Gmail, Drive, Slack, Calendar, Tasks MCP servers
+│   │   ├── rag/                  # RAG ingestion pipeline & vector store
 │   │   ├── routers/
-│   │   │   └── chat.py         # /chat & /api/chat SSE streaming endpoints
-│   │   └── services/
-│   │       └── claude_client.py # Anthropic Claude streaming service & dev simulator
+│   │   │   ├── chat.py           # /chat SSE + /chat/approve resume endpoints
+│   │   │   ├── governance.py     # /governance/audit-logs, /policies, /circuit-breaker
+│   │   │   ├── mcp.py            # /mcp/servers, /mcp/tools, /mcp/call sandbox
+│   │   │   ├── documents.py      # /documents CRUD + /documents/search RAG
+│   │   │   └── metrics.py        # /metrics/kpis, /time-series, /tools, /roles, /activity
+│   │   ├── services/
+│   │   │   ├── gemini_client.py  # Google Gemini streaming client
+│   │   │   └── metrics.py        # MetricsStore (thread-safe time-series telemetry)
+│   │   ├── config.py             # Pydantic settings
+│   │   └── main.py               # FastAPI app entry point + CORS
 │   ├── .env.example
-│   ├── Dockerfile              # Backend container definition
-│   └── requirements.txt        # Python backend dependencies
+│   ├── Dockerfile
+│   └── requirements.txt
 ├── frontend/
 │   ├── app/
-│   │   ├── layout.js           # App layout with typography & metadata
-│   │   ├── page.js             # Modern dark-mode streaming Operations Console
-│   │   └── globals.css         # Tailwind CSS styling
-│   ├── Dockerfile              # Next.js container definition
-│   └── package.json            # Frontend dependencies
-├── docker-compose.yml          # Postgres (pgvector), Redis, FastAPI, Next.js orchestration
-├── .env.example                # Unified environment variables template
-└── README.md                   # System documentation & setup guide
+│   │   ├── page.js               # Main UI: Chat, Plan Stepper, Approval Gate, Modals
+│   │   ├── layout.js             # App layout & metadata
+│   │   └── globals.css           # Global styles
+│   ├── Dockerfile
+│   └── package.json
+├── docker-compose.yml            # Postgres (pgvector), Redis, FastAPI, Next.js
+├── .env.example
+└── README.md
 ```
 
 ---
@@ -64,118 +168,149 @@ AI_Operation_agent/
 ### Prerequisites
 - **Python 3.11+**
 - **Node.js 20+**
-- **Docker & Docker Compose** (optional for local non-container development)
+- **Google Gemini API Key** (optional — runs in dev simulation mode without it)
 
----
+### Option A: Local Development (Recommended)
 
-### Option A: Local Non-Docker Development (Fast Iteration)
-
-#### 1. Setup Backend (FastAPI)
+**1. Backend (FastAPI on port 8000)**
 ```bash
-# In the project root:
-# 1. Create and activate a virtual environment
+# Create and activate virtual environment
 python -m venv .venv
+
 # Windows:
 .venv\Scripts\activate
 # Linux/macOS:
 source .venv/bin/activate
 
-# 2. Install dependencies
+# Install dependencies
 pip install -r backend/requirements.txt
 
-# 3. Configure environment
-copy backend\.env.example backend\.env   # On Windows
-# cp backend/.env.example backend/.env   # On Linux/macOS
-# Add your ANTHROPIC_API_KEY if available (runs in dev simulation mode if left blank)
+# Configure environment (add GEMINI_API_KEY for live AI)
+copy backend\.env.example backend\.env
 
-# 4. Run FastAPI backend
+# Start FastAPI with hot-reload
 python -m uvicorn app.main:app --app-dir backend --reload --port 8000
 ```
-Backend API will be accessible at: `http://localhost:8000` (Interactive docs at `http://localhost:8000/docs`).
+> API: `http://localhost:8000` | Interactive Docs: `http://localhost:8000/docs`
 
-#### 2. Setup Frontend (Next.js)
+**2. Frontend (Next.js on port 3000)**
 ```bash
-# In another terminal:
 cd frontend
 npm install
 npm run dev
 ```
-Frontend UI will be accessible at: `http://localhost:3000`.
+> UI: `http://localhost:3000`
 
 ---
 
 ### Option B: Docker Compose (All Services)
 
 ```bash
-# 1. Copy root environment template
+# Copy and configure environment
 cp .env.example .env
+# Add your GEMINI_API_KEY to .env
 
-# 2. Add your ANTHROPIC_API_KEY into .env
-
-# 3. Build and launch all services (Postgres + pgvector, Redis, FastAPI, Next.js)
+# Build and launch everything
 docker compose up --build
 ```
 
 Services started:
-- **Frontend UI**: `http://localhost:3000`
-- **FastAPI API & Docs**: `http://localhost:8000/docs`
-- **PostgreSQL (pgvector)**: `localhost:5432`
-- **Redis Cache**: `localhost:6379`
+| Service | URL |
+|---|---|
+| Frontend UI | http://localhost:3000 |
+| FastAPI + Docs | http://localhost:8000/docs |
+| PostgreSQL (pgvector) | localhost:5432 |
+| Redis | localhost:6379 |
 
 ---
 
-## 🧪 Testing Phase 1 End-to-End
+## 🧪 Testing the Full Workflow
 
-1. Open `http://localhost:3000` in your browser.
-2. Verify the top right status badge shows **FastAPI Connected (Online)**.
-3. Test with the example prompt:
+1. Open `http://localhost:3000`
+2. Verify **FastAPI Connected (Online)** in the header status badge
+3. Select a role from the top-right role switcher (start with **EMPLOYEE**)
+4. Paste this directive and hit Send:
    > *"Find the latest sales report, summarize the important changes, create a task for the finance team, and send the summary to the manager."*
-4. Confirm:
-   - User message appears on the right.
-   - Response streams into the UI token-by-token using Server-Sent Events (SSE).
-   - If an `ANTHROPIC_API_KEY` is provided, live Claude 3.7 / 3.5 Sonnet generates the response.
-   - If no key is provided, the built-in dev simulator safely streams an informative onboarding message without crashing.
+5. Watch the **Multi-Step Operations Plan** unfold step by step
+6. When the **Supervisor Clearance Required** gate appears (for email dispatch), approve or reject it
+7. Open **Governance & Audit** to see the cryptographic audit trail update in real time
+8. Open **Analytics** to view the KPI dashboard and time-series telemetry
+
+### Testing RBAC Enforcement
+- Switch to **EMPLOYEE** role → try sending an email → agent will trigger the Human Approval Gate
+- Switch to **ADMIN** role → open Governance Hub → engage the **Emergency Circuit Breaker** → all tool executions are instantly frozen
 
 ---
 
-## 🗺️ Project Implementation Roadmap
+## 🔌 API Reference
 
-- [x] **Phase 1: Core scaffold** (Monorepo structure, FastAPI `/chat` SSE streaming, Next.js App Router UI, Docker Compose).
-- [x] **Phase 2: Agent brain (LangGraph)** (Planner, ToolSelector, Executor, Validator, Human gate interrupt/resume, MemorySaver checkpointer).
-- [x] **Phase 3: RAG over company documents** (Ingestion pipeline, 3072-dim vector embeddings, pgvector / embedded vector store, `search_company_docs` tool).
-- [x] **Phase 4: MCP tool integrations** (Official Model Context Protocol SDK 2.2.0 servers for Google Drive, Gmail, Slack, Google Calendar, and Jira/Linear Tasks; MCP Manager registry, JSON-RPC 2.0 tool execution sandbox, and LangGraph agent tool bindings).
-- [x] **Phase 5: Safety & governance** (Human approval gate with LangGraph `interrupt`/resume, Role-Based Access Control (RBAC) policy matrix, SHA-256 cryptographically chained audit ledger, Emergency Circuit Breaker kill switch, and Governance Hub frontend modal with live audit log viewer).
-- [x] **Phase 6: Observability & evaluation** (Real-time KPI dashboard, time-series tool telemetry, role activity breakdown, P95 latency tracking, and live activity feed via `/api/metrics/*`).
+### Chat & Agent
+| Method | Endpoint | Description |
+|---|---|---|
+| `GET` | `/api/chat/status` | Engine health, model, capabilities |
+| `POST` | `/api/chat` | Stream agent workflow (SSE) |
+| `POST` | `/api/chat/approve` | Resume workflow after human approval decision |
+
+### Governance
+| Method | Endpoint | Description |
+|---|---|---|
+| `GET` | `/api/governance/policies` | Full RBAC policy matrix |
+| `GET` | `/api/governance/roles` | Role metadata and tool counts |
+| `GET` | `/api/governance/audit-logs` | Queryable cryptographic audit trail |
+| `POST` | `/api/governance/circuit-breaker` | Toggle emergency kill switch |
+
+### MCP Tools
+| Method | Endpoint | Description |
+|---|---|---|
+| `GET` | `/api/mcp/servers` | Status, latency for all 5 MCP servers |
+| `GET` | `/api/mcp/tools` | All 15 tools with schemas & sensitivity tags |
+| `POST` | `/api/mcp/call` | Direct JSON-RPC 2.0 tool execution sandbox |
+
+### Observability
+| Method | Endpoint | Description |
+|---|---|---|
+| `GET` | `/api/metrics/kpis` | Aggregate KPIs for a given time window |
+| `GET` | `/api/metrics/time-series` | Bucketed call volume trends |
+| `GET` | `/api/metrics/tools` | Per-tool telemetry breakdown |
+| `GET` | `/api/metrics/roles` | Per-role activity summary |
+| `GET` | `/api/metrics/activity` | Live activity feed (latest N records) |
+| `GET` | `/api/metrics/summary` | Consolidated payload for dashboard load |
 
 ---
 
-## 🔌 Model Context Protocol (MCP) Integrations (Phase 4)
+## 🗺️ Implementation Roadmap
 
-The agent integrates enterprise tools via official Python `mcp` SDK (`v2.2.0`) servers running over JSON-RPC 2.0:
+- [x] **Phase 1: Core Scaffold** — Monorepo, FastAPI SSE streaming gateway, Next.js App Router UI, Docker Compose orchestration
+- [x] **Phase 2: LangGraph Agent Brain** — Planner, ToolSelector, Executor, Validator, Synthesizer nodes; human gate `interrupt`/resume; MemorySaver checkpointer
+- [x] **Phase 3: RAG over Company Documents** — Ingestion pipeline, 3072-dim Google text-embedding-004, pgvector / embedded store, cosine similarity search
+- [x] **Phase 4: MCP Tool Integrations** — Official MCP SDK v2.2.0 servers for Gmail, Drive, Slack, Calendar, and Jira/Linear Tasks; JSON-RPC 2.0 sandbox
+- [x] **Phase 5: Safety & Governance** — Human Approval Gate (LangGraph interrupt/resume), RBAC policy matrix (24 tools, 3 roles), SHA-256 cryptographically chained audit ledger, Emergency Circuit Breaker kill switch, Governance Hub frontend modal
+- [x] **Phase 6: Observability & Analytics** — Real-time KPI dashboard, SVG time-series chart, tool execution breakdown, role activity bar chart, live activity feed, `/api/metrics/*` REST API
 
-1. **Google Drive MCP Server** (`backend/app/mcp/servers/drive_server.py`):
-   - `drive_search_files`: Search enterprise docs, sheets, PDFs, and presentations.
-   - `drive_read_file`: Retrieve structured document text.
-   - `drive_create_doc`: Draft Google Docs / reports.
-2. **Gmail MCP Server** (`backend/app/mcp/servers/gmail_server.py`):
-   - `gmail_list_messages`: Search inboxes and message threads.
-   - `gmail_send_message`: Send emails (flagged as `is_sensitive=True` requiring supervisor clearance).
-   - `gmail_create_draft`: Save drafts safely.
-3. **Slack MCP Server** (`backend/app/mcp/servers/slack_server.py`):
-   - `slack_list_channels`: Discover public/private communication channels.
-   - `slack_read_channel`: Extract recent message history.
-   - `slack_post_message`: Post announcements/updates (`is_sensitive=True`).
-4. **Calendar MCP Server** (`backend/app/mcp/servers/calendar_server.py`):
-   - `calendar_list_events`: Fetch schedule agendas.
-   - `calendar_create_event`: Book executive meetings and reviews.
-   - `calendar_check_conflicts`: Query availability and participant clashes.
-5. **Tasks MCP Server** (`backend/app/mcp/servers/task_server.py`):
-   - `task_create_ticket`: Provision Jira / Linear operational tickets (`FIN-` / `ENG-` / `OPS-`).
-   - `task_get_ticket`: Fetch status and assignees.
-   - `task_update_status`: Transition tickets (`In Progress`, `Done`, `Blocked`).
+---
 
-### MCP Endpoints
-- `GET /api/mcp/servers`: Status, tool counts, and latency across all MCP servers.
-- `GET /api/mcp/tools`: Schema and sensitivity tags for all discoverable MCP tools.
-- `POST /api/mcp/call`: JSON-RPC 2.0 direct execution sandbox.
+## 📸 Key UI Features
 
+| Feature | Description |
+|---|---|
+| **Operations Console** | Dark-mode chat interface with SSE streaming |
+| **Plan Stepper** | Live multi-step execution tracker with tool icons and MCP server labels |
+| **Approval Gate Card** | Animated supervisor clearance prompt with role enforcement |
+| **Governance Hub** | Audit log viewer, RBAC policy matrix, circuit breaker toggle |
+| **Analytics Dashboard** | KPI cards, SVG area chart, tool table, role breakdown, live feed |
+| **MCP Sandbox** | Direct JSON-RPC tool testing with active role context |
+| **RAG Vector Store** | Document ingestion, semantic search with similarity scores |
+| **Role Switcher** | Switch between EMPLOYEE / MANAGER / ADMIN personas |
+
+---
+
+## 📄 License
+
+MIT License — see [LICENSE](LICENSE) for details.
+
+---
+
+<div align="center">
+  <p>Built with ❤️ using FastAPI · LangGraph · Google Gemini · Next.js · MCP</p>
+  <p><strong>All 6 phases complete ✅</strong></p>
+</div>
