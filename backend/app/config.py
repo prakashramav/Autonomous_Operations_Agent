@@ -1,6 +1,7 @@
 import os
 from pathlib import Path
 from dotenv import load_dotenv
+from pydantic import field_validator
 from pydantic_settings import BaseSettings
 from typing import List
 
@@ -41,10 +42,25 @@ class Settings(BaseSettings):
     
     # CORS
     CORS_ORIGINS: List[str] = [
+        "*",
         "http://localhost:3000",
         "http://127.0.0.1:3000",
-        "http://localhost:8000"
+        "http://localhost:8000",
+        "https://autonomous-operations-agent.vercel.app",
     ]
+
+    @field_validator("CORS_ORIGINS", mode="before")
+    @classmethod
+    def parse_cors_origins(cls, v):
+        if isinstance(v, str):
+            if v.startswith("[") and v.endswith("]"):
+                import json
+                try:
+                    return json.loads(v)
+                except Exception:
+                    pass
+            return [origin.strip() for origin in v.split(",") if origin.strip()]
+        return v
 
     class Config:
         env_file = ".env"

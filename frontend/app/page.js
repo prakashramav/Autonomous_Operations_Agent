@@ -48,7 +48,11 @@ import {
   ArrowDownRight
 } from "lucide-react";
 
-const BACKEND_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+const BACKEND_URL =
+  process.env.NEXT_PUBLIC_API_URL ||
+  (typeof window !== "undefined" && window.location.hostname !== "localhost" && window.location.hostname !== "127.0.0.1"
+    ? "https://autonomous-operations-agent.vercel.app"
+    : "http://localhost:8000");
 
 const ENTERPRISE_ROLES = [
   {
