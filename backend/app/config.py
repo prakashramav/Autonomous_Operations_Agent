@@ -1,6 +1,15 @@
 import os
+from pathlib import Path
+from dotenv import load_dotenv
 from pydantic_settings import BaseSettings
 from typing import List
+
+# Explicitly load .env from backend directory and root directory
+_backend_dir = Path(__file__).resolve().parent.parent
+_root_dir = _backend_dir.parent
+for env_file in [_backend_dir / ".env", _root_dir / ".env"]:
+    if env_file.exists():
+        load_dotenv(env_file, override=False)
 
 class Settings(BaseSettings):
     PROJECT_NAME: str = "EnterpriseOps Agent Backend"
@@ -15,8 +24,16 @@ class Settings(BaseSettings):
 
     @property
     def effective_gemini_key(self) -> str:
+        # Check instance attributes, then environment variables, then reload from backend/.env if needed
         key = self.GEMINI_API_KEY or self.GOOGLE_API_KEY or os.environ.get("GEMINI_API_KEY", "") or os.environ.get("GOOGLE_API_KEY", "")
-        return key.strip()
+        if not key or key.startswith("your-"):
+            for ef in [_backend_dir / ".env", _root_dir / ".env"]:
+                if ef.exists():
+                    load_dotenv(ef, override=True)
+                    key = os.environ.get("GEMINI_API_KEY", "") or os.environ.get("GOOGLE_API_KEY", "")
+                    if key and not key.startswith("your-"):
+                        break
+        return key.strip() if key else ""
     
     # Database & Cache (ready for Phase 2 & 3)
     DATABASE_URL: str = "postgresql+asyncpg://enterpriseops:enterpriseops_pwd@localhost:5432/enterpriseops_db"
