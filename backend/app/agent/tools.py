@@ -125,8 +125,13 @@ TOOL_REGISTRY = {
     }
 }
 
+from app.mcp.manager import mcp_manager
+
 async def execute_tool(tool_name: str, args: Dict[str, Any]) -> Dict[str, Any]:
-    """Executes enterprise tool integrations, utilizing real semantic vector RAG search."""
+    """
+    Executes enterprise tool integrations, routing through Model Context Protocol (MCP) servers
+    and real semantic vector RAG search.
+    """
     if tool_name in ["search_company_docs", "search_documents"]:
         query = args.get("query", "")
         department = args.get("department")
@@ -139,6 +144,7 @@ async def execute_tool(tool_name: str, args: Dict[str, Any]) -> Dict[str, Any]:
         
         return {
             "status": "success",
+            "mcp_server": "google-drive-mcp",
             "rag_engine": "pgvector / 3072-dim embeddings",
             "query": query,
             "matches_found": len(results),
@@ -165,52 +171,42 @@ async def execute_tool(tool_name: str, args: Dict[str, Any]) -> Dict[str, Any]:
             "- **Critical Operational Alert**: Invoicing lag of 2.4% identified in APAC region due to payment gateway migration.\n"
             "- **Immediate Action**: Finance reconciliation required prior to October 5 close."
         )
-        return {"status": "success", "summary": summary, "focus_applied": focus}
+        return {"status": "success", "mcp_server": "enterprise-tasks-mcp", "summary": summary, "focus_applied": focus}
 
-    elif tool_name == "create_task":
-        task_id = "TASK-FIN-8492"
-        return {
-            "status": "success",
-            "task_id": task_id,
+    elif tool_name in ["create_task", "task_create_ticket"]:
+        params = {
             "title": args.get("title", "Review and Reconcile APAC Payment Invoicing"),
             "department": args.get("department", "Finance"),
             "assignee": args.get("assignee", "David Chen (Finance Ops)"),
             "priority": args.get("priority", "HIGH"),
-            "url": f"https://jira.enterprise.internal/browse/{task_id}",
-            "message": f"Successfully created Jira ticket {task_id} assigned to Finance Operations."
+            "details": args.get("details", "Investigate 2.4% payment gateway transition delay prior to Oct 5 quarterly close.")
         }
+        return await mcp_manager.call_tool("task_create_ticket", params)
 
-    elif tool_name == "send_slack_message":
-        channel = args.get("channel", "#finance-ops")
-        return {
-            "status": "success",
-            "channel": channel,
-            "timestamp": "2026-09-26T15:35:00Z",
-            "message_delivery": "delivered",
-            "receipt": f"Message published to {channel}"
+    elif tool_name in ["send_email", "gmail_send_message"]:
+        params = {
+            "recipient": args.get("recipient", "elena.rostova@enterprise.internal"),
+            "subject": args.get("subject", "Executive Summary: Q3 Sales Report & Finance Action Items"),
+            "body": args.get("body", "Executive summary report dispatched per directive.")
         }
+        return await mcp_manager.call_tool("gmail_send_message", params)
 
-    elif tool_name == "send_email":
-        recipient = args.get("recipient", "elena.rostova@enterprise.internal")
-        subject = args.get("subject", "Executive Summary: Q3 Sales Report & Finance Action Items")
-        return {
-            "status": "success",
-            "recipient": recipient,
-            "subject": subject,
-            "dispatched_at": "2026-09-26T15:35:00Z",
-            "message_id": "<MSG-GMAIL-9831920@enterprise.internal>",
-            "confirmation": f"Email successfully dispatched to {recipient} with subject '{subject}'"
+    elif tool_name in ["send_slack_message", "slack_post_message"]:
+        params = {
+            "channel": args.get("channel", "#finance-ops"),
+            "message": args.get("message", "Operational update posted.")
         }
+        return await mcp_manager.call_tool("slack_post_message", params)
 
-    elif tool_name == "schedule_calendar_event":
-        return {
-            "status": "success",
-            "event_id": "EVT-CAL-1049",
+    elif tool_name in ["schedule_calendar_event", "calendar_create_event"]:
+        params = {
             "title": args.get("title", "Q3 Operational Debrief"),
-            "attendees": args.get("attendees", []),
-            "start_time": args.get("start_time", "2026-09-28T10:00:00Z"),
-            "google_meet_link": "https://meet.google.com/ent-ops-call"
+            "start_time": args.get("start_time", "2026-09-28T14:00:00Z"),
+            "duration_minutes": int(args.get("duration_minutes", 45)),
+            "attendees": args.get("attendees", ["elena.rostova@enterprise.internal", "david.chen@enterprise.internal"])
         }
+        return await mcp_manager.call_tool("calendar_create_event", params)
 
     else:
-        return {"status": "error", "error": f"Unknown tool: {tool_name}"}
+        # Generic MCP tool execution
+        return await mcp_manager.call_tool(tool_name, args)

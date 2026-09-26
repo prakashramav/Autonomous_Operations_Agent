@@ -143,6 +143,39 @@ Services started:
 - [x] **Phase 1: Core scaffold** (Monorepo structure, FastAPI `/chat` SSE streaming, Next.js App Router UI, Docker Compose).
 - [x] **Phase 2: Agent brain (LangGraph)** (Planner, ToolSelector, Executor, Validator, Human gate interrupt/resume, MemorySaver checkpointer).
 - [x] **Phase 3: RAG over company documents** (Ingestion pipeline, 3072-dim vector embeddings, pgvector / embedded vector store, `search_company_docs` tool).
-- [ ] **Phase 4: MCP tool integrations** (Gmail, Drive, Slack, Calendar MCP servers, `create_task`).
+- [x] **Phase 4: MCP tool integrations** (Official Model Context Protocol SDK 2.2.0 servers for Google Drive, Gmail, Slack, Google Calendar, and Jira/Linear Tasks; MCP Manager registry, JSON-RPC 2.0 tool execution sandbox, and LangGraph agent tool bindings).
 - [ ] **Phase 5: Safety & governance** (Human approval gate, role-based access control, structured audit logging).
 - [ ] **Phase 6: Observability & evaluation** (Agent tracing, evaluation test scenarios, hallucination benchmark).
+
+---
+
+## 🔌 Model Context Protocol (MCP) Integrations (Phase 4)
+
+The agent integrates enterprise tools via official Python `mcp` SDK (`v2.2.0`) servers running over JSON-RPC 2.0:
+
+1. **Google Drive MCP Server** (`backend/app/mcp/servers/drive_server.py`):
+   - `drive_search_files`: Search enterprise docs, sheets, PDFs, and presentations.
+   - `drive_read_file`: Retrieve structured document text.
+   - `drive_create_doc`: Draft Google Docs / reports.
+2. **Gmail MCP Server** (`backend/app/mcp/servers/gmail_server.py`):
+   - `gmail_list_messages`: Search inboxes and message threads.
+   - `gmail_send_message`: Send emails (flagged as `is_sensitive=True` requiring supervisor clearance).
+   - `gmail_create_draft`: Save drafts safely.
+3. **Slack MCP Server** (`backend/app/mcp/servers/slack_server.py`):
+   - `slack_list_channels`: Discover public/private communication channels.
+   - `slack_read_channel`: Extract recent message history.
+   - `slack_post_message`: Post announcements/updates (`is_sensitive=True`).
+4. **Calendar MCP Server** (`backend/app/mcp/servers/calendar_server.py`):
+   - `calendar_list_events`: Fetch schedule agendas.
+   - `calendar_create_event`: Book executive meetings and reviews.
+   - `calendar_check_conflicts`: Query availability and participant clashes.
+5. **Tasks MCP Server** (`backend/app/mcp/servers/task_server.py`):
+   - `task_create_ticket`: Provision Jira / Linear operational tickets (`FIN-` / `ENG-` / `OPS-`).
+   - `task_get_ticket`: Fetch status and assignees.
+   - `task_update_status`: Transition tickets (`In Progress`, `Done`, `Blocked`).
+
+### MCP Endpoints
+- `GET /api/mcp/servers`: Status, tool counts, and latency across all MCP servers.
+- `GET /api/mcp/tools`: Schema and sensitivity tags for all discoverable MCP tools.
+- `POST /api/mcp/call`: JSON-RPC 2.0 direct execution sandbox.
+
