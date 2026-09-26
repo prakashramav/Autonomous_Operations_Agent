@@ -1,9 +1,9 @@
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from typing import List, Optional, Literal
 import json
-from app.services.claude_client import claude_service
+from app.services.gemini_client import gemini_service
 from app.config import settings
 
 router = APIRouter(prefix="/chat", tags=["Chat"])
@@ -19,22 +19,22 @@ class ChatRequest(BaseModel):
 
 class StatusResponse(BaseModel):
     status: str
-    anthropic_configured: bool
+    gemini_configured: bool
     model: str
 
 @router.get("/status", response_model=StatusResponse)
 async def chat_status():
     return StatusResponse(
         status="online",
-        anthropic_configured=claude_service.is_configured(),
-        model=settings.ANTHROPIC_MODEL
+        gemini_configured=gemini_service.is_configured(),
+        model=settings.GEMINI_MODEL
     )
 
 @router.post("")
 async def chat_endpoint(request: ChatRequest):
     """
     Chat endpoint for Enterprise Operations Agent (Phase 1).
-    Proxies to Claude via Anthropic API (or dev simulator if key is pending).
+    Proxies to Google Gemini (or dev simulator if key is pending).
     Supports Server-Sent Events (SSE) streaming or standard JSON response.
     """
     formatted_messages = [
@@ -47,7 +47,7 @@ async def chat_endpoint(request: ChatRequest):
     if request.stream:
         async def event_generator():
             try:
-                async for chunk in claude_service.stream_chat(
+                async for chunk in gemini_service.stream_chat(
                     messages=formatted_messages,
                     system_prompt=request.system_prompt
                 ):
@@ -72,7 +72,7 @@ async def chat_endpoint(request: ChatRequest):
     # Non-streaming fallback
     full_text = ""
     try:
-        async for chunk in claude_service.stream_chat(
+        async for chunk in gemini_service.stream_chat(
             messages=formatted_messages,
             system_prompt=request.system_prompt
         ):

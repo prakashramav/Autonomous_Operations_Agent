@@ -37,7 +37,7 @@ export default function Home() {
       role: "assistant",
       content:
         "Welcome to **EnterpriseOps Agent**. I am your autonomous enterprise workflow assistant.\n\n" +
-        "You can issue natural language operations requests across your enterprise stack. In **Phase 1 (Core Scaffold)**, end-to-end streaming between Next.js and FastAPI proxying Claude is active.",
+        "You can issue natural language operations requests across your enterprise stack. In **Phase 1 (Core Scaffold)**, end-to-end streaming between Next.js and FastAPI proxying Google Gemini is active.",
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     }
   ]);
@@ -47,8 +47,8 @@ export default function Home() {
   const [backendStatus, setBackendStatus] = useState({
     connected: false,
     checking: true,
-    model: "claude-3-7-sonnet-20250219",
-    anthropicConfigured: false
+    model: "gemini-2.5-flash",
+    geminiConfigured: false
   });
 
   const messagesEndRef = useRef(null);
@@ -75,8 +75,8 @@ export default function Home() {
         setBackendStatus({
           connected: true,
           checking: false,
-          model: data.model || "claude-3-7-sonnet-20250219",
-          anthropicConfigured: data.anthropic_configured
+          model: data.model || "gemini-2.5-flash",
+          geminiConfigured: data.gemini_configured
         });
       } else {
         setBackendStatus(prev => ({ ...prev, connected: false, checking: false }));
@@ -285,7 +285,7 @@ export default function Home() {
                 <CheckCircle2 className="h-4 w-4 text-indigo-400 shrink-0 mt-0.5" />
                 <div>
                   <span className="font-medium text-white block">Phase 1: Core Scaffold</span>
-                  <span className="text-[11px] text-indigo-300">Next.js + FastAPI + Claude SSE Stream</span>
+                  <span className="text-[11px] text-indigo-300">Next.js + FastAPI + Gemini SSE Stream</span>
                 </div>
               </div>
               <div className="p-2 rounded bg-slate-900/40 border border-slate-800/60 flex items-start gap-2 text-slate-500">
@@ -341,12 +341,12 @@ export default function Home() {
         <div className="p-4 border-t border-slate-800/80 bg-slate-950/40 text-[11px] text-slate-400">
           <div className="flex items-center justify-between mb-1">
             <span className="text-slate-500">Active Model</span>
-            <span className="font-mono text-indigo-400 font-medium">{backendStatus.model.replace("claude-", "")}</span>
+            <span className="font-mono text-indigo-400 font-medium">{backendStatus.model}</span>
           </div>
           <div className="flex items-center justify-between">
-            <span className="text-slate-500">Anthropic Key</span>
-            <span className={backendStatus.anthropicConfigured ? "text-emerald-400" : "text-amber-400"}>
-              {backendStatus.anthropicConfigured ? "Configured" : "Dev Simulation"}
+            <span className="text-slate-500">Gemini Key</span>
+            <span className={backendStatus.geminiConfigured ? "text-emerald-400" : "text-amber-400"}>
+              {backendStatus.geminiConfigured ? "Configured" : "Dev Simulation"}
             </span>
           </div>
         </div>
