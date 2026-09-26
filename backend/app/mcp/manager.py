@@ -1,4 +1,5 @@
 import logging
+import time
 from typing import Dict, Any, List, Optional
 from mcp.server.mcpserver import MCPServer
 from app.mcp.servers.drive_server import drive_mcp
@@ -115,8 +116,15 @@ class MCPManager:
         tool_info = self._tool_cache.get(tool_name)
         return tool_info.get("is_sensitive", False) if tool_info else False
 
-    async def call_tool(self, tool_name: str, args: Dict[str, Any]) -> Dict[str, Any]:
-        """Routes a tool call to the appropriate MCP Server via standard JSON-RPC."""
+    async def call_tool(
+        self,
+        tool_name: str,
+        args: Dict[str, Any],
+        user_role: str = "EMPLOYEE",
+        actor_id: str = "emp-operational-01",
+        session_id: str = "direct-mcp"
+    ) -> Dict[str, Any]:
+        """Routes a tool call to the appropriate MCP Server via standard JSON-RPC, enforcing safety guardrails."""
         await self.initialize()
 
         tool_meta = self._tool_cache.get(tool_name)
@@ -140,13 +148,36 @@ class MCPManager:
                 "error": f"MCP tool '{tool_name}' not found on any connected server."
             }
 
+        # Validate security guardrails (Circuit Breaker & RBAC)
+        from app.governance.guardrails import validate_execution_guardrails
+        from app.governance.audit import audit_logger
+        from app.governance.models import ActionStatus
+
+        guardrail = validate_execution_guardrails(
+            tool_name=tool_name,
+            user_role_str=user_role,
+            actor_id=actor_id,
+            session_id=session_id,
+            tool_args=args
+        )
+
+        if not guardrail.allowed:
+            return {
+                "status": "denied",
+                "policy_violation": True,
+                "error": guardrail.reason,
+                "guardrails": guardrail.to_dict()
+            }
+
         server_id = tool_meta["server_id"]
         server = self.servers[server_id]
 
         try:
-            # Native MCP Server call
+            # Native MCP Server call — measure wall-clock latency
+            _t0 = time.monotonic()
             result = await server.call_tool(tool_name, args)
-            
+            _latency_ms = (time.monotonic() - _t0) * 1000
+
             # Extract structured payload from MCP CallToolResult
             payload = {}
             if hasattr(result, "structured_content") and result.structured_content:
@@ -162,13 +193,70 @@ class MCPManager:
                     payload = json.loads(text_combined)
                 except Exception:
                     payload = {"text": text_combined}
-            
+
             if isinstance(payload, dict):
                 payload["mcp_server"] = server_id
                 payload["mcp_tool"] = tool_name
+
+            # Record to metrics store
+            from app.services.metrics import metrics_store
+            metrics_store.record_tool_call(
+                tool_name=tool_name,
+                user_role=user_role,
+                actor_id=actor_id,
+                session_id=session_id,
+                latency_ms=_latency_ms,
+                success=True,
+                was_blocked=False,
+                was_approval_required=guardrail.requires_approval
+            )
+
+            # Log executed audit record
+            import json as _json
+            audit_logger.log(
+                session_id=session_id,
+                actor_id=actor_id,
+                actor_role=guardrail.user_role,
+                action_type="TOOL_EXECUTION",
+                tool_name=tool_name,
+                risk_level=guardrail.risk_level,
+                status=ActionStatus.EXECUTED,
+                input_summary=f"Tool: {tool_name} | Args: {_json.dumps(args)[:200]}",
+                output_summary=f"Result: {_json.dumps(payload)[:200]}",
+                policy_reason="Authorized execution completed via MCP"
+            )
+
             return payload
         except Exception as e:
+            _latency_ms = (time.monotonic() - _t0) * 1000 if '_t0' in dir() else 0.0
             logger.exception(f"Error calling MCP tool {tool_name} on {server_id}")
+
+            # Record failed call to metrics
+            from app.services.metrics import metrics_store
+            metrics_store.record_tool_call(
+                tool_name=tool_name,
+                user_role=user_role,
+                actor_id=actor_id,
+                session_id=session_id,
+                latency_ms=_latency_ms,
+                success=False,
+                was_blocked=False,
+                was_approval_required=False,
+                error_type=type(e).__name__
+            )
+
+            audit_logger.log(
+                session_id=session_id,
+                actor_id=actor_id,
+                actor_role=guardrail.user_role,
+                action_type="TOOL_EXECUTION",
+                tool_name=tool_name,
+                risk_level=guardrail.risk_level,
+                status=ActionStatus.FAILED,
+                input_summary=f"Tool: {tool_name}",
+                output_summary=f"Error: {str(e)}",
+                policy_reason="Execution failure"
+            )
             return {
                 "status": "error",
                 "mcp_server": server_id,
@@ -176,3 +264,4 @@ class MCPManager:
             }
 
 mcp_manager = MCPManager()
+

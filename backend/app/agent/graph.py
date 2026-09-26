@@ -81,15 +81,20 @@ class AgentRunner:
     async def stream_operation(
         self,
         session_id: str,
-        user_request: str
+        user_request: str,
+        user_role: str = "EMPLOYEE",
+        actor_id: Optional[str] = None
     ) -> AsyncGenerator[Dict[str, Any], None]:
         """
-        Streams graph execution steps, plans, tool executions, and approval gate interrupts.
+        Streams graph execution steps, plans, tool executions, and approval gate interrupts with RBAC governance.
         """
         config = {"configurable": {"thread_id": session_id}}
+        effective_actor = actor_id or f"emp-7492 ({user_role.capitalize()})"
         initial_state = {
             "session_id": session_id,
             "user_request": user_request,
+            "user_role": user_role,
+            "actor_id": effective_actor,
             "messages": [{"role": "user", "content": user_request}],
             "plan": [],
             "current_step_index": 0,
@@ -159,13 +164,21 @@ class AgentRunner:
     async def resume_with_decision(
         self,
         session_id: str,
-        decision: str  # "approved" or "rejected"
+        decision: str,  # "approved" or "rejected"
+        approver_role: str = "MANAGER",
+        approver_id: Optional[str] = None
     ) -> AsyncGenerator[Dict[str, Any], None]:
         """
-        Resumes the paused graph from its checkpointer using human supervisor decision.
+        Resumes the paused graph from its checkpointer using human supervisor decision and verified approver role.
         """
         config = {"configurable": {"thread_id": session_id}}
-        resume_command = Command(resume={"action": decision})
+        effective_approver = approver_id or f"mgr-0182 ({approver_role.capitalize()})"
+        resume_command = Command(resume={
+            "action": decision,
+            "approver_role": approver_role,
+            "approver_id": effective_approver
+        })
+
 
         try:
             async for event in self.graph.astream(resume_command, config=config, stream_mode="updates"):

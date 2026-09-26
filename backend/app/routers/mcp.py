@@ -8,6 +8,8 @@ router = APIRouter(prefix="/mcp", tags=["Model Context Protocol (MCP)"])
 class MCPCallRequest(BaseModel):
     tool: str
     arguments: Dict[str, Any] = Field(default_factory=dict)
+    user_role: Optional[str] = "EMPLOYEE"
+    actor_id: Optional[str] = None
 
 @router.get("/servers")
 async def list_mcp_servers():
@@ -33,9 +35,17 @@ async def list_mcp_tools():
 @router.post("/call")
 async def call_mcp_tool_endpoint(request: MCPCallRequest):
     """Executes a designated tool via its parent MCP Server over JSON-RPC."""
-    result = await mcp_manager.call_tool(request.tool, request.arguments)
+    actor = request.actor_id or f"direct-user ({request.user_role or 'EMPLOYEE'})"
+    result = await mcp_manager.call_tool(
+        tool_name=request.tool,
+        args=request.arguments,
+        user_role=request.user_role or "EMPLOYEE",
+        actor_id=actor,
+        session_id="sandbox-rpc"
+    )
     return {
         "status": "success",
         "tool": request.tool,
         "result": result
     }
+

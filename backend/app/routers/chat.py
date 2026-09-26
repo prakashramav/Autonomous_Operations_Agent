@@ -21,10 +21,15 @@ class ChatRequest(BaseModel):
     stream: bool = True
     system_prompt: Optional[str] = None
     use_agent: bool = True  # Phase 2 LangGraph agent workflow
+    user_role: Optional[str] = "EMPLOYEE"  # "EMPLOYEE", "MANAGER", "ADMIN"
+    actor_id: Optional[str] = None
 
 class ApprovalDecisionRequest(BaseModel):
     session_id: str
     decision: Literal["approved", "rejected"]
+    approver_role: Optional[str] = "MANAGER"  # "MANAGER", "ADMIN"
+    approver_id: Optional[str] = None
+
 
 class StatusResponse(BaseModel):
     status: str
@@ -67,7 +72,12 @@ async def chat_endpoint(request: ChatRequest):
                 # Yield session tracking event
                 yield f"data: {json.dumps({'event': 'session_init', 'session_id': session_id})}\n\n"
 
-                async for event in agent_runner.stream_operation(session_id, last_user_message):
+                async for event in agent_runner.stream_operation(
+                    session_id=session_id,
+                    user_request=last_user_message,
+                    user_role=request.user_role or "EMPLOYEE",
+                    actor_id=request.actor_id
+                ):
                     event_type = event.get("type")
                     if event_type == "plan_created":
                         payload = json.dumps({
@@ -161,7 +171,12 @@ async def approve_endpoint(request: ApprovalDecisionRequest):
     """
     async def resume_event_generator():
         try:
-            async for event in agent_runner.resume_with_decision(request.session_id, request.decision):
+            async for event in agent_runner.resume_with_decision(
+                session_id=request.session_id,
+                decision=request.decision,
+                approver_role=request.approver_role or "MANAGER",
+                approver_id=request.approver_id
+            ):
                 event_type = event.get("type")
                 if event_type == "step_executed":
                     payload = json.dumps({

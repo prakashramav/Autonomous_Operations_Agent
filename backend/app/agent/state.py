@@ -23,6 +23,8 @@ class ApprovalRequest(BaseModel):
 class AgentState(TypedDict):
     session_id: str
     user_request: str
+    user_role: str  # "EMPLOYEE", "MANAGER", "ADMIN"
+    actor_id: str   # e.g. "emp-7492 (Sarah Lin)"
     messages: List[Dict[str, Any]]
     plan: List[Dict[str, Any]]
     current_step_index: int
@@ -32,3 +34,4 @@ class AgentState(TypedDict):
     is_complete: bool
     final_response: str
     error: Optional[str]
+

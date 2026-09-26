@@ -144,8 +144,8 @@ Services started:
 - [x] **Phase 2: Agent brain (LangGraph)** (Planner, ToolSelector, Executor, Validator, Human gate interrupt/resume, MemorySaver checkpointer).
 - [x] **Phase 3: RAG over company documents** (Ingestion pipeline, 3072-dim vector embeddings, pgvector / embedded vector store, `search_company_docs` tool).
 - [x] **Phase 4: MCP tool integrations** (Official Model Context Protocol SDK 2.2.0 servers for Google Drive, Gmail, Slack, Google Calendar, and Jira/Linear Tasks; MCP Manager registry, JSON-RPC 2.0 tool execution sandbox, and LangGraph agent tool bindings).
-- [ ] **Phase 5: Safety & governance** (Human approval gate, role-based access control, structured audit logging).
-- [ ] **Phase 6: Observability & evaluation** (Agent tracing, evaluation test scenarios, hallucination benchmark).
+- [x] **Phase 5: Safety & governance** (Human approval gate with LangGraph `interrupt`/resume, Role-Based Access Control (RBAC) policy matrix, SHA-256 cryptographically chained audit ledger, Emergency Circuit Breaker kill switch, and Governance Hub frontend modal with live audit log viewer).
+- [x] **Phase 6: Observability & evaluation** (Real-time KPI dashboard, time-series tool telemetry, role activity breakdown, P95 latency tracking, and live activity feed via `/api/metrics/*`).
 
 ---
 

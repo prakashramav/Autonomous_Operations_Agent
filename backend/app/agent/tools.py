@@ -127,11 +127,38 @@ TOOL_REGISTRY = {
 
 from app.mcp.manager import mcp_manager
 
-async def execute_tool(tool_name: str, args: Dict[str, Any]) -> Dict[str, Any]:
+async def execute_tool(
+    tool_name: str,
+    args: Dict[str, Any],
+    user_role: str = "EMPLOYEE",
+    actor_id: str = "emp-operational-01",
+    session_id: str = "agent-run"
+) -> Dict[str, Any]:
     """
     Executes enterprise tool integrations, routing through Model Context Protocol (MCP) servers
-    and real semantic vector RAG search.
+    and real semantic vector RAG search with security governance.
     """
+    from app.governance.guardrails import validate_execution_guardrails
+    from app.governance.audit import audit_logger
+    from app.governance.models import ActionStatus, RiskLevel
+
+    # Pre-execution guardrails validation
+    guardrail = validate_execution_guardrails(
+        tool_name=tool_name,
+        user_role_str=user_role,
+        actor_id=actor_id,
+        session_id=session_id,
+        tool_args=args
+    )
+
+    if not guardrail.allowed:
+        return {
+            "status": "denied",
+            "policy_violation": True,
+            "error": guardrail.reason,
+            "guardrails": guardrail.to_dict()
+        }
+
     if tool_name in ["search_company_docs", "search_documents"]:
         query = args.get("query", "")
         department = args.get("department")
@@ -142,7 +169,7 @@ async def execute_tool(tool_name: str, args: Dict[str, Any]) -> Dict[str, Any]:
 
         results = await vector_store.search(query=query, top_k=top_k, department=department)
         
-        return {
+        res = {
             "status": "success",
             "mcp_server": "google-drive-mcp",
             "rag_engine": "pgvector / 3072-dim embeddings",
@@ -161,6 +188,20 @@ async def execute_tool(tool_name: str, args: Dict[str, Any]) -> Dict[str, Any]:
             ]
         }
 
+        audit_logger.log(
+            session_id=session_id,
+            actor_id=actor_id,
+            actor_role=guardrail.user_role,
+            action_type="TOOL_EXECUTION",
+            tool_name=tool_name,
+            risk_level=RiskLevel.LOW,
+            status=ActionStatus.EXECUTED,
+            input_summary=f"Query: '{query}' (top_k={top_k})",
+            output_summary=f"Returned {len(results)} matches from vector store",
+            policy_reason="Authorized document query"
+        )
+        return res
+
     elif tool_name == "summarize_data":
         text = args.get("text", "")
         focus = args.get("focus_areas", ["important changes", "revenue", "action items"])
@@ -171,7 +212,21 @@ async def execute_tool(tool_name: str, args: Dict[str, Any]) -> Dict[str, Any]:
             "- **Critical Operational Alert**: Invoicing lag of 2.4% identified in APAC region due to payment gateway migration.\n"
             "- **Immediate Action**: Finance reconciliation required prior to October 5 close."
         )
-        return {"status": "success", "mcp_server": "enterprise-tasks-mcp", "summary": summary, "focus_applied": focus}
+        res = {"status": "success", "mcp_server": "enterprise-tasks-mcp", "summary": summary, "focus_applied": focus}
+        
+        audit_logger.log(
+            session_id=session_id,
+            actor_id=actor_id,
+            actor_role=guardrail.user_role,
+            action_type="TOOL_EXECUTION",
+            tool_name=tool_name,
+            risk_level=RiskLevel.LOW,
+            status=ActionStatus.EXECUTED,
+            input_summary="Summarize Q3 financial data",
+            output_summary="Synthesized ARR, gross margin, and APAC reconciliation alert",
+            policy_reason="Authorized analysis"
+        )
+        return res
 
     elif tool_name in ["create_task", "task_create_ticket"]:
         params = {
@@ -181,7 +236,7 @@ async def execute_tool(tool_name: str, args: Dict[str, Any]) -> Dict[str, Any]:
             "priority": args.get("priority", "HIGH"),
             "details": args.get("details", "Investigate 2.4% payment gateway transition delay prior to Oct 5 quarterly close.")
         }
-        return await mcp_manager.call_tool("task_create_ticket", params)
+        return await mcp_manager.call_tool("task_create_ticket", params, user_role, actor_id, session_id)
 
     elif tool_name in ["send_email", "gmail_send_message"]:
         params = {
@@ -189,14 +244,14 @@ async def execute_tool(tool_name: str, args: Dict[str, Any]) -> Dict[str, Any]:
             "subject": args.get("subject", "Executive Summary: Q3 Sales Report & Finance Action Items"),
             "body": args.get("body", "Executive summary report dispatched per directive.")
         }
-        return await mcp_manager.call_tool("gmail_send_message", params)
+        return await mcp_manager.call_tool("gmail_send_message", params, user_role, actor_id, session_id)
 
     elif tool_name in ["send_slack_message", "slack_post_message"]:
         params = {
             "channel": args.get("channel", "#finance-ops"),
             "message": args.get("message", "Operational update posted.")
         }
-        return await mcp_manager.call_tool("slack_post_message", params)
+        return await mcp_manager.call_tool("slack_post_message", params, user_role, actor_id, session_id)
 
     elif tool_name in ["schedule_calendar_event", "calendar_create_event"]:
         params = {
@@ -205,8 +260,9 @@ async def execute_tool(tool_name: str, args: Dict[str, Any]) -> Dict[str, Any]:
             "duration_minutes": int(args.get("duration_minutes", 45)),
             "attendees": args.get("attendees", ["elena.rostova@enterprise.internal", "david.chen@enterprise.internal"])
         }
-        return await mcp_manager.call_tool("calendar_create_event", params)
+        return await mcp_manager.call_tool("calendar_create_event", params, user_role, actor_id, session_id)
 
     else:
         # Generic MCP tool execution
-        return await mcp_manager.call_tool(tool_name, args)
+        return await mcp_manager.call_tool(tool_name, args, user_role, actor_id, session_id)
+
