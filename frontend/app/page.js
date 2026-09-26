@@ -26,7 +26,11 @@ import {
   ChevronDown,
   ChevronUp,
   Cpu,
-  KeyRound
+  KeyRound,
+  Search,
+  BookOpen,
+  Plus,
+  ExternalLink
 } from "lucide-react";
 
 const BACKEND_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
@@ -45,12 +49,12 @@ export default function Home() {
       role: "assistant",
       content:
         "Welcome to **EnterpriseOps Agent**.\n\n" +
-        "I am an autonomous operations assistant powered by a multi-step **LangGraph Agent Brain** and **Google Gemini**.\n\n" +
+        "I am an autonomous operations assistant powered by a multi-step **LangGraph Agent Brain**, **Google Gemini**, and a **PostgreSQL pgvector RAG Index (3072-dim)**.\n\n" +
         "When you issue an operational directive, I will:\n" +
-        "1. **Plan**: Formulate an ordered sequence of enterprise tool invocations.\n" +
-        "2. **Execute & Observe**: Search documents, compute summaries, create Jira tickets, or draft dispatches.\n" +
-        "3. **Human Approval Gate**: Request your interactive clearance before dispatching emails or external broadcasts.\n" +
-        "4. **Synthesize**: Provide an executive operational debrief.",
+        "1. **Semantic RAG Search**: Query enterprise knowledge base with vector similarity embeddings.\n" +
+        "2. **Plan & Execute**: Formulate an ordered sequence of enterprise tool invocations (Drive, Jira, Slack, Gmail, Calendar).\n" +
+        "3. **Human Clearance Gate**: Pause and request supervisor sign-off before dispatching emails or external broadcasts.\n" +
+        "4. **Synthesize**: Deliver an executive operational debrief.",
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     }
   ]);
@@ -59,12 +63,20 @@ export default function Home() {
   const [approvalLoading, setApprovalLoading] = useState(false);
   const [copiedId, setCopiedId] = useState(null);
   const [expandedSteps, setExpandedSteps] = useState({});
+  const [showRAGModal, setShowRAGModal] = useState(false);
+  const [ragDocs, setRagDocs] = useState([]);
+  const [ragSearchQuery, setRagSearchQuery] = useState("");
+  const [ragSearchResults, setRagSearchResults] = useState(null);
+  const [ragSearching, setRagSearching] = useState(false);
+  const [showIngestForm, setShowIngestForm] = useState(false);
+  const [newDoc, setNewDoc] = useState({ title: "", department: "Operations", content: "" });
+  const [ingesting, setIngesting] = useState(false);
   const [backendStatus, setBackendStatus] = useState({
     connected: false,
     checking: true,
     model: "gemini-2.5-flash",
     geminiConfigured: false,
-    phase: "Phase 2 (LangGraph Agent Brain)"
+    phase: "Phase 3 (RAG + LangGraph Agent Brain)"
   });
 
   const messagesEndRef = useRef(null);
@@ -92,7 +104,7 @@ export default function Home() {
           checking: false,
           model: data.model || "gemini-2.5-flash",
           geminiConfigured: data.gemini_configured,
-          phase: data.phase || "Phase 2 (LangGraph Agent Brain)"
+          phase: data.phase || "Phase 3 (RAG + LangGraph)"
         });
       } else {
         setBackendStatus(prev => ({ ...prev, connected: false, checking: false }));
@@ -102,8 +114,22 @@ export default function Home() {
     }
   };
 
+  // Fetch RAG documents
+  const fetchRagDocs = async () => {
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/documents`);
+      if (res.ok) {
+        const data = await res.json();
+        setRagDocs(data.documents || []);
+      }
+    } catch (e) {
+      console.error("Failed to fetch documents", e);
+    }
+  };
+
   useEffect(() => {
     checkBackendHealth();
+    fetchRagDocs();
     const interval = setInterval(checkBackendHealth, 15000);
     return () => clearInterval(interval);
   }, []);
@@ -116,6 +142,49 @@ export default function Home() {
 
   const toggleStepDetails = (stepKey) => {
     setExpandedSteps(prev => ({ ...prev, [stepKey]: !prev[stepKey] }));
+  };
+
+  const handleRAGSearch = async (e) => {
+    e?.preventDefault();
+    if (!ragSearchQuery.trim()) return;
+    setRagSearching(true);
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/documents/search`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query: ragSearchQuery, top_k: 3 })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setRagSearchResults(data.results || []);
+      }
+    } catch (err) {
+      console.error("RAG search failed", err);
+    } finally {
+      setRagSearching(false);
+    }
+  };
+
+  const handleIngestDocument = async (e) => {
+    e.preventDefault();
+    if (!newDoc.title.trim() || !newDoc.content.trim()) return;
+    setIngesting(true);
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/documents/ingest`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(newDoc)
+      });
+      if (res.ok) {
+        setNewDoc({ title: "", department: "Operations", content: "" });
+        setShowIngestForm(false);
+        await fetchRagDocs();
+      }
+    } catch (err) {
+      console.error("Ingestion failed", err);
+    } finally {
+      setIngesting(false);
+    }
   };
 
   const handleSend = async (textToSend) => {
@@ -253,7 +322,6 @@ export default function Home() {
                 );
               }
             } catch {
-              // Non-JSON SSE event data or raw chunk
               if (dataStr) {
                 accumulated += dataStr;
                 setMessages(prev =>
@@ -295,7 +363,6 @@ export default function Home() {
     setApprovalLoading(true);
 
     try {
-      // Clear pending approval banner immediately for responsive feel
       setMessages(prev =>
         prev.map(msg =>
           msg.id === messageId
@@ -396,8 +463,9 @@ export default function Home() {
 
   const getToolIcon = (toolName) => {
     switch (toolName) {
+      case "search_company_docs":
       case "search_documents":
-        return <FileText className="h-3.5 w-3.5 text-blue-400" />;
+        return <Database className="h-3.5 w-3.5 text-blue-400" />;
       case "send_email":
         return <Mail className="h-3.5 w-3.5 text-rose-400" />;
       case "send_slack_message":
@@ -427,19 +495,19 @@ export default function Home() {
             <div>
               <h1 className="font-semibold text-sm tracking-tight text-white flex items-center gap-2">
                 EnterpriseOps
-                <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-indigo-500/10 text-indigo-400 border border-indigo-500/30">
-                  Phase 2
+                <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-cyan-500/10 text-cyan-400 border border-cyan-500/30">
+                  Phase 3
                 </span>
               </h1>
               <p className="text-xs text-slate-400">Autonomous Operations Agent</p>
             </div>
           </div>
 
-          {/* Backend Connection Badge */}
+          {/* Engine & RAG Status Badge */}
           <div className="mt-4 p-2.5 rounded-lg bg-slate-950/70 border border-slate-800 text-xs flex items-center justify-between">
             <span className="text-slate-400 flex items-center gap-1.5">
               <Cpu className="h-3.5 w-3.5 text-indigo-400" />
-              LangGraph Engine
+              LangGraph + RAG
             </span>
             <div className="flex items-center gap-1.5">
               <span
@@ -466,6 +534,31 @@ export default function Home() {
 
         {/* Phase Checklist & Features */}
         <div className="p-5 flex-1 overflow-y-auto space-y-5 text-xs text-slate-300">
+          {/* RAG Knowledge Base Launcher */}
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <p className="font-semibold uppercase tracking-wider text-[11px] text-slate-400 flex items-center gap-1.5">
+                <Database className="h-3.5 w-3.5 text-blue-400" /> Enterprise Knowledge
+              </p>
+              <span className="text-[9px] font-mono text-cyan-400 bg-cyan-500/10 px-1.5 py-0.5 rounded border border-cyan-500/20">
+                {ragDocs.length} Docs
+              </span>
+            </div>
+            <button
+              onClick={() => setShowRAGModal(true)}
+              className="w-full p-2.5 rounded-xl bg-gradient-to-r from-blue-950/40 via-indigo-950/30 to-slate-900 border border-blue-500/30 hover:border-blue-400/60 text-left transition flex items-center justify-between group shadow-sm"
+            >
+              <div className="flex items-center gap-2">
+                <BookOpen className="h-4 w-4 text-blue-400 group-hover:scale-110 transition" />
+                <div>
+                  <span className="font-medium text-white block">Document Repository</span>
+                  <span className="text-[10px] text-slate-400">pgvector 3072-dim RAG</span>
+                </div>
+              </div>
+              <ExternalLink className="h-3.5 w-3.5 text-slate-500 group-hover:text-blue-400 transition" />
+            </button>
+          </div>
+
           <div>
             <p className="font-semibold uppercase tracking-wider text-[11px] text-slate-400 mb-2.5 flex items-center gap-1.5">
               <Layers className="h-3.5 w-3.5 text-indigo-400" /> Architecture Roadmap
@@ -478,20 +571,20 @@ export default function Home() {
                   <span className="text-[11px] text-slate-500">FastAPI Gateway + Next.js SSE</span>
                 </div>
               </div>
-              <div className="p-2.5 rounded-lg bg-gradient-to-r from-indigo-950/70 to-slate-900 border border-indigo-500/40 flex items-start gap-2 text-indigo-100 shadow-sm">
-                <CheckCircle2 className="h-4 w-4 text-indigo-400 shrink-0 mt-0.5" />
+              <div className="p-2 rounded bg-slate-900/40 border border-slate-800/60 flex items-start gap-2 text-slate-400">
+                <CheckCircle2 className="h-4 w-4 text-emerald-400 shrink-0 mt-0.5" />
                 <div>
-                  <span className="font-semibold text-white block">Phase 2: LangGraph Brain</span>
-                  <span className="text-[11px] text-indigo-300 leading-tight block">
-                    Planner, Tool Executor, Human Approval Gate & Memory
-                  </span>
+                  <span className="font-medium text-slate-300 block">Phase 2: LangGraph Brain</span>
+                  <span className="text-[11px] text-slate-500">Planner, Tool Execution & Human Gate</span>
                 </div>
               </div>
-              <div className="p-2 rounded bg-slate-900/40 border border-slate-800/60 flex items-start gap-2 text-slate-500">
-                <div className="h-4 w-4 rounded-full border border-slate-700 shrink-0 mt-0.5 flex items-center justify-center text-[10px]">3</div>
+              <div className="p-2.5 rounded-lg bg-gradient-to-r from-cyan-950/70 to-slate-900 border border-cyan-500/40 flex items-start gap-2 text-cyan-100 shadow-sm">
+                <CheckCircle2 className="h-4 w-4 text-cyan-400 shrink-0 mt-0.5" />
                 <div>
-                  <span className="font-medium text-slate-400 block">Phase 3: Document RAG</span>
-                  <span className="text-[11px] text-slate-500">pgvector & Embeddings</span>
+                  <span className="font-semibold text-white block">Phase 3: Document RAG</span>
+                  <span className="text-[11px] text-cyan-300 leading-tight block">
+                    pgvector, 3072-dim Embeddings & Semantic Search Tool
+                  </span>
                 </div>
               </div>
               <div className="p-2 rounded bg-slate-900/40 border border-slate-800/60 flex items-start gap-2 text-slate-500">
@@ -506,22 +599,15 @@ export default function Home() {
 
           <div>
             <p className="font-semibold uppercase tracking-wider text-[11px] text-slate-400 mb-2.5 flex items-center gap-1.5">
-              <ShieldCheck className="h-3.5 w-3.5 text-emerald-400" /> Active Agent Tools
+              <ShieldCheck className="h-3.5 w-3.5 text-emerald-400" /> Connected Tools
             </p>
             <div className="space-y-1.5">
               <div className="p-2 rounded bg-slate-950/60 border border-slate-800/80 flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <FileText className="h-3.5 w-3.5 text-blue-400" />
-                  <span className="text-[11px] text-slate-300">search_documents</span>
+                  <Database className="h-3.5 w-3.5 text-cyan-400" />
+                  <span className="text-[11px] text-slate-300">search_company_docs</span>
                 </div>
-                <span className="text-[9px] px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">SAFE</span>
-              </div>
-              <div className="p-2 rounded bg-slate-950/60 border border-slate-800/80 flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <Sparkles className="h-3.5 w-3.5 text-cyan-400" />
-                  <span className="text-[11px] text-slate-300">summarize_data</span>
-                </div>
-                <span className="text-[9px] px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">SAFE</span>
+                <span className="text-[9px] px-1.5 py-0.5 rounded bg-cyan-500/10 text-cyan-400 border border-cyan-500/30">RAG</span>
               </div>
               <div className="p-2 rounded bg-slate-950/60 border border-slate-800/80 flex items-center justify-between">
                 <div className="flex items-center gap-2">
@@ -551,8 +637,8 @@ export default function Home() {
         {/* System info footer */}
         <div className="p-4 border-t border-slate-800/80 bg-slate-950/40 text-[11px] text-slate-400 space-y-1.5">
           <div className="flex items-center justify-between">
-            <span className="text-slate-500">State Memory</span>
-            <span className="font-mono text-cyan-400 font-medium">MemorySaver (LangGraph)</span>
+            <span className="text-slate-500">Vector Store</span>
+            <span className="font-mono text-cyan-400 font-medium">pgvector (3072-dim)</span>
           </div>
           <div className="flex items-center justify-between">
             <span className="text-slate-500">Active Model</span>
@@ -577,14 +663,21 @@ export default function Home() {
               <h2 className="font-semibold text-sm text-white flex items-center gap-2">
                 Operations Console
                 <span className="hidden sm:inline-block px-2 py-0.5 text-[10px] rounded-full bg-cyan-500/10 text-cyan-400 border border-cyan-500/30">
-                  LangGraph Agent Mode
+                  RAG + LangGraph Mode
                 </span>
               </h2>
-              <p className="text-[11px] text-slate-400">Autonomous Multi-Step Planning & Human Clearance Gate</p>
+              <p className="text-[11px] text-slate-400">Autonomous Planning, 3072-dim Semantic Search & Governance</p>
             </div>
           </div>
 
           <div className="flex items-center gap-3">
+            <button
+              onClick={() => setShowRAGModal(true)}
+              className="px-3 py-1.5 rounded-lg border border-blue-500/30 hover:border-blue-400/60 bg-blue-950/30 text-blue-300 hover:text-white transition text-xs font-medium flex items-center gap-1.5"
+            >
+              <Database className="h-3.5 w-3.5 text-blue-400" />
+              <span>RAG Knowledge</span>
+            </button>
             <button
               onClick={checkBackendHealth}
               title="Refresh Engine Status"
@@ -633,13 +726,13 @@ export default function Home() {
                 {/* Assistant Message with Plan & Gates */}
                 {msg.role === "assistant" && (
                   <>
-                    {/* Execution Plan Stepper if available */}
+                    {/* Execution Plan Stepper */}
                     {msg.plan && msg.plan.length > 0 && (
                       <div className="rounded-xl bg-slate-950/80 border border-slate-800/80 p-3.5 space-y-2.5">
                         <div className="flex items-center justify-between border-b border-slate-800/60 pb-2">
                           <span className="text-xs font-semibold text-slate-200 flex items-center gap-1.5">
                             <Workflow className="h-3.5 w-3.5 text-indigo-400" />
-                            Operations Execution Plan ({msg.plan.filter(s => s.status === "completed" || s.status === "rejected").length}/{msg.plan.length} Steps)
+                            Operations Plan ({msg.plan.filter(s => s.status === "completed" || s.status === "rejected").length}/{msg.plan.length} Steps)
                           </span>
                           <span className="text-[10px] text-slate-500 font-mono">
                             SESSION: {msg.sessionId ? msg.sessionId.slice(0, 14) : "langgraph"}
@@ -655,6 +748,17 @@ export default function Home() {
                             const isWaitingApproval = step.status === "waiting_approval";
                             const isCompleted = step.status === "completed";
                             const isRejected = step.status === "rejected";
+
+                            // Parse RAG results if this step queried documents
+                            let ragData = null;
+                            if (step.result && (step.tool.includes("document") || step.tool.includes("rag"))) {
+                              try {
+                                const parsed = JSON.parse(step.result);
+                                if (parsed.documents && parsed.documents.length > 0) {
+                                  ragData = parsed.documents[0];
+                                }
+                              } catch {}
+                            }
 
                             return (
                               <div
@@ -673,7 +777,6 @@ export default function Home() {
                               >
                                 <div className="flex items-center justify-between gap-2">
                                   <div className="flex items-center gap-2.5 flex-1 min-w-0">
-                                    {/* Status Icon */}
                                     <div className="shrink-0">
                                       {isCompleted && (
                                         <CheckCircle2 className="h-4 w-4 text-emerald-400" />
@@ -692,7 +795,6 @@ export default function Home() {
                                       )}
                                     </div>
 
-                                    {/* Step Title & Tool */}
                                     <div className="flex-1 truncate">
                                       <div className="flex items-center gap-2">
                                         <span className="font-medium text-slate-200 truncate">
@@ -706,8 +808,12 @@ export default function Home() {
                                     </div>
                                   </div>
 
-                                  {/* Right badges & expand toggle */}
                                   <div className="flex items-center gap-2 shrink-0">
+                                    {ragData && (
+                                      <span className="text-[9px] px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-300 border border-blue-500/30 font-mono">
+                                        RAG: {Math.round(ragData.similarity_score * 100)}% Match
+                                      </span>
+                                    )}
                                     {step.is_sensitive && (
                                       <span className="text-[9px] px-1.5 py-0.5 rounded bg-rose-500/10 text-rose-400 border border-rose-500/30">
                                         GATE
@@ -726,9 +832,9 @@ export default function Home() {
                                   </div>
                                 </div>
 
-                                {/* Expanded Step Details */}
+                                {/* Expanded Step Details with RAG citations */}
                                 {isExpanded && (
-                                  <div className="mt-2.5 pt-2 border-t border-slate-800/80 text-[11px] space-y-1.5 text-slate-400 font-mono">
+                                  <div className="mt-2.5 pt-2 border-t border-slate-800/80 text-[11px] space-y-2 text-slate-400 font-mono">
                                     <p className="text-slate-300 font-sans">{step.description}</p>
                                     {step.thought && (
                                       <p className="italic text-slate-400 font-sans">
@@ -736,13 +842,23 @@ export default function Home() {
                                         {step.thought}
                                       </p>
                                     )}
+                                    {ragData && (
+                                      <div className="p-2.5 rounded-lg bg-blue-950/30 border border-blue-500/30 text-blue-200 space-y-1 font-sans">
+                                        <div className="flex items-center justify-between text-[10px] font-mono">
+                                          <span className="text-blue-400 font-bold">SOURCE: {ragData.doc_id}</span>
+                                          <span className="text-cyan-300">{Math.round(ragData.similarity_score * 100)}% Similarity Score</span>
+                                        </div>
+                                        <p className="text-xs font-medium text-white">{ragData.title}</p>
+                                        <p className="text-[11px] text-slate-300 line-clamp-3 italic">"{ragData.summary_content}"</p>
+                                      </div>
+                                    )}
                                     {step.tool_args && Object.keys(step.tool_args).length > 0 && (
                                       <div className="p-2 rounded bg-slate-950 border border-slate-800/80 overflow-x-auto text-[10px]">
                                         <span className="text-slate-500 font-bold block mb-0.5">Parameters:</span>
                                         <pre>{JSON.stringify(step.tool_args, null, 2)}</pre>
                                       </div>
                                     )}
-                                    {step.result && (
+                                    {step.result && !ragData && (
                                       <div className="p-2 rounded bg-slate-950 border border-emerald-900/40 text-emerald-300 overflow-x-auto text-[10px]">
                                         <span className="text-emerald-500 font-bold block mb-0.5">Output:</span>
                                         <pre className="whitespace-pre-wrap">{step.result}</pre>
@@ -810,7 +926,6 @@ export default function Home() {
                           </div>
                         )}
 
-                        {/* Interactive Approval Buttons */}
                         <div className="flex items-center gap-3 pt-1">
                           <button
                             onClick={() => handleApprovalDecision(msg.id, msg.sessionId, "approved")}
@@ -847,7 +962,7 @@ export default function Home() {
                     {isStreaming && msg.id.startsWith("assistant") && msg === messages[messages.length - 1] && (
                       <div className="flex items-center gap-2 text-xs text-cyan-400 animate-pulse">
                         <RefreshCw className="h-3.5 w-3.5 animate-spin" />
-                        <span>LangGraph agent executing workflow...</span>
+                        <span>LangGraph agent querying pgvector RAG & executing workflow...</span>
                       </div>
                     )}
                   </>
@@ -886,7 +1001,7 @@ export default function Home() {
         {messages.length <= 2 && (
           <div className="px-6 py-2 max-w-4xl mx-auto w-full">
             <p className="text-xs text-slate-400 mb-2 font-medium flex items-center gap-1.5">
-              <Sparkles className="h-3.5 w-3.5 text-indigo-400" /> Multi-Step Operational Directives:
+              <Sparkles className="h-3.5 w-3.5 text-indigo-400" /> Multi-Step Directives & RAG Workflows:
             </p>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
               {EXAMPLE_PROMPTS.map((prompt, idx) => (
@@ -917,7 +1032,7 @@ export default function Home() {
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={handleKeyDown}
-                placeholder="Give an operational directive (e.g. Find sales report, summarize changes, notify manager)..."
+                placeholder="Issue an operational directive (e.g. Find sales report, summarize changes, notify manager)..."
                 rows={2}
                 disabled={isStreaming || approvalLoading}
                 className="w-full bg-transparent px-3 py-1.5 text-sm text-slate-100 placeholder-slate-500 focus:outline-none resize-none font-sans"
@@ -935,15 +1050,207 @@ export default function Home() {
               </button>
             </form>
             <div className="mt-2 flex items-center justify-between text-[11px] text-slate-500 px-1">
-              <span>Press <kbd className="px-1.5 py-0.5 rounded bg-slate-800 border border-slate-700 font-mono text-[10px]">Enter</kbd> to execute directive, <kbd className="px-1.5 py-0.5 rounded bg-slate-800 border border-slate-700 font-mono text-[10px]">Shift + Enter</kbd> for new line</span>
+              <span>Press <kbd className="px-1.5 py-0.5 rounded bg-slate-800 border border-slate-700 font-mono text-[10px]">Enter</kbd> to execute, <kbd className="px-1.5 py-0.5 rounded bg-slate-800 border border-slate-700 font-mono text-[10px]">Shift + Enter</kbd> for new line</span>
               <span className="flex items-center gap-1.5">
-                <ShieldCheck className="h-3 w-3 text-emerald-400" />
-                EnterpriseOps Agent • Phase 2 LangGraph Brain
+                <Database className="h-3 w-3 text-cyan-400" />
+                Phase 3 RAG (3072-dim) + LangGraph Agent
               </span>
             </div>
           </div>
         </div>
       </main>
+
+      {/* RAG Knowledge Base Slide-Out Modal */}
+      {showRAGModal && (
+        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="w-full max-w-3xl max-h-[85vh] bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+            {/* Modal Header */}
+            <div className="p-5 border-b border-slate-800 flex items-center justify-between bg-slate-950/60">
+              <div className="flex items-center gap-3">
+                <div className="h-9 w-9 rounded-xl bg-blue-500/20 border border-blue-500/40 flex items-center justify-center text-blue-400">
+                  <Database className="h-5 w-5" />
+                </div>
+                <div>
+                  <h3 className="font-semibold text-base text-white flex items-center gap-2">
+                    Enterprise Knowledge Base (RAG)
+                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-cyan-500/10 text-cyan-400 border border-cyan-500/30">
+                      3072-dim pgvector
+                    </span>
+                  </h3>
+                  <p className="text-xs text-slate-400">Indexed documents accessible by the autonomous operations agent</p>
+                </div>
+              </div>
+              <button
+                onClick={() => {
+                  setShowRAGModal(false);
+                  setRagSearchResults(null);
+                  setRagSearchQuery("");
+                }}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            {/* Vector Search Testing Bar */}
+            <div className="p-4 border-b border-slate-800 bg-slate-950/40">
+              <form onSubmit={handleRAGSearch} className="flex gap-2">
+                <div className="relative flex-1">
+                  <Search className="h-4 w-4 text-slate-500 absolute left-3 top-3" />
+                  <input
+                    type="text"
+                    value={ragSearchQuery}
+                    onChange={(e) => setRagSearchQuery(e.target.value)}
+                    placeholder="Test vector similarity search (e.g. 'reconciliation policy', 'soc 2 compliance')..."
+                    className="w-full bg-slate-900 border border-slate-700/80 rounded-xl pl-9 pr-3 py-2 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-blue-500 transition"
+                  />
+                </div>
+                <button
+                  type="submit"
+                  disabled={ragSearching || !ragSearchQuery.trim()}
+                  className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-medium text-xs flex items-center gap-1.5 transition disabled:opacity-50 shrink-0"
+                >
+                  {ragSearching ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Search className="h-3.5 w-3.5" />}
+                  Vector Query
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowIngestForm(!showIngestForm)}
+                  className="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium flex items-center gap-1 transition shrink-0"
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                  Ingest
+                </button>
+              </form>
+
+              {/* Dynamic Ingestion Form */}
+              {showIngestForm && (
+                <form onSubmit={handleIngestDocument} className="mt-3 p-3 rounded-xl bg-slate-900 border border-slate-700/80 space-y-2.5 text-xs">
+                  <div className="font-semibold text-slate-200 text-xs">Ingest Custom Enterprise Document</div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <input
+                      type="text"
+                      placeholder="Document Title"
+                      value={newDoc.title}
+                      onChange={(e) => setNewDoc({ ...newDoc, title: e.target.value })}
+                      required
+                      className="bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1.5 text-slate-200 text-xs"
+                    />
+                    <select
+                      value={newDoc.department}
+                      onChange={(e) => setNewDoc({ ...newDoc, department: e.target.value })}
+                      className="bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1.5 text-slate-200 text-xs"
+                    >
+                      <option value="Operations">Operations</option>
+                      <option value="Finance">Finance</option>
+                      <option value="Sales">Sales</option>
+                      <option value="Engineering">Engineering</option>
+                      <option value="Security">Security</option>
+                    </select>
+                  </div>
+                  <textarea
+                    placeholder="Document Content (will be embedded into 3072-dimensional vector space)..."
+                    value={newDoc.content}
+                    onChange={(e) => setNewDoc({ ...newDoc, content: e.target.value })}
+                    required
+                    rows={3}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-slate-200 text-xs resize-none"
+                  />
+                  <div className="flex justify-end gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setShowIngestForm(false)}
+                      className="px-3 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-400 text-xs"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={ingesting}
+                      className="px-3 py-1 rounded bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-medium flex items-center gap-1"
+                    >
+                      {ingesting && <RefreshCw className="h-3 w-3 animate-spin" />}
+                      Index Document
+                    </button>
+                  </div>
+                </form>
+              )}
+            </div>
+
+            {/* Document List or Search Results */}
+            <div className="flex-1 overflow-y-auto p-5 space-y-3">
+              {ragSearchResults ? (
+                <div>
+                  <div className="flex items-center justify-between mb-3">
+                    <span className="text-xs font-semibold text-slate-300">
+                      Semantic Similarity Results for "{ragSearchQuery}" ({ragSearchResults.length} matches)
+                    </span>
+                    <button
+                      onClick={() => setRagSearchResults(null)}
+                      className="text-[11px] text-blue-400 hover:underline"
+                    >
+                      Show All Documents
+                    </button>
+                  </div>
+                  <div className="space-y-2.5">
+                    {ragSearchResults.map((res) => (
+                      <div
+                        key={res.chunk_id}
+                        className="p-3.5 rounded-xl bg-slate-950/80 border border-blue-500/40 space-y-1.5"
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="font-semibold text-xs text-white">{res.title}</span>
+                          <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-blue-500/20 text-blue-300 border border-blue-500/40">
+                            {Math.round(res.similarity_score * 100)}% Similarity
+                          </span>
+                        </div>
+                        <div className="text-[10px] font-mono text-slate-500">
+                          {res.doc_id} • Department: {res.department}
+                        </div>
+                        <p className="text-xs text-slate-300 leading-relaxed font-sans">{res.content}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <div className="text-xs font-semibold text-slate-300">
+                    All Indexed Documents ({ragDocs.length})
+                  </div>
+                  {ragDocs.map((doc) => (
+                    <div
+                      key={doc.doc_id}
+                      className="p-3.5 rounded-xl bg-slate-950/70 border border-slate-800 hover:border-slate-700 transition space-y-1.5"
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="font-semibold text-xs text-white">{doc.title}</span>
+                        <span className="text-[10px] px-2 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700">
+                          {doc.department}
+                        </span>
+                      </div>
+                      <div className="text-[10px] font-mono text-slate-500">
+                        {doc.doc_id} • Embeddings: {doc.dimension}-dim
+                      </div>
+                      <p className="text-xs text-slate-400 leading-relaxed">{doc.preview}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Modal Footer */}
+            <div className="p-4 border-t border-slate-800 bg-slate-950/60 flex items-center justify-between text-xs text-slate-500">
+              <span>Vector Similarity: Cosine Distance &lt;=&gt; (pgvector / Embedded index)</span>
+              <button
+                onClick={() => setShowRAGModal(false)}
+                className="px-4 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-white font-medium text-xs transition"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

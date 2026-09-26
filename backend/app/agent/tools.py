@@ -43,7 +43,20 @@ ENTERPRISE_KNOWLEDGE_BASE = {
     }
 }
 
+from app.rag.vector_store import vector_store
+
 TOOL_REGISTRY = {
+    "search_company_docs": {
+        "name": "search_company_docs",
+        "description": "Executes semantic RAG vector similarity search over enterprise Google Drive, Notion, policies, and documentation using 3072-dimensional embeddings.",
+        "parameters": {
+            "query": "string: natural language search topic or question",
+            "department": "optional string: 'Sales', 'Finance', 'Operations', 'Engineering', 'Security'",
+            "top_k": "optional integer: number of document matches to return"
+        },
+        "is_sensitive": False,
+        "risk_level": "LOW"
+    },
     "search_documents": {
         "name": "search_documents",
         "description": "Search corporate Google Drive, Notion, and internal documentation for reports, memos, and policies.",
@@ -113,32 +126,32 @@ TOOL_REGISTRY = {
 }
 
 async def execute_tool(tool_name: str, args: Dict[str, Any]) -> Dict[str, Any]:
-    """Simulates execution of enterprise tool integrations."""
-    if tool_name == "search_documents":
-        query = args.get("query", "").lower()
-        results = []
-        for key, doc in ENTERPRISE_KNOWLEDGE_BASE.items():
-            if (
-                any(w in doc["title"].lower() for w in query.split()) or
-                any(w in doc["content"].lower() for w in query.split()) or
-                "report" in query or "sale" in query
-            ):
-                results.append(doc)
+    """Executes enterprise tool integrations, utilizing real semantic vector RAG search."""
+    if tool_name in ["search_company_docs", "search_documents"]:
+        query = args.get("query", "")
+        department = args.get("department")
+        try:
+            top_k = int(args.get("top_k", 3))
+        except (ValueError, TypeError):
+            top_k = 3
+
+        results = await vector_store.search(query=query, top_k=top_k, department=department)
         
-        if not results:
-            results = [ENTERPRISE_KNOWLEDGE_BASE["sales_report"]]
-            
         return {
             "status": "success",
+            "rag_engine": "pgvector / 3072-dim embeddings",
+            "query": query,
             "matches_found": len(results),
             "documents": [
                 {
-                    "title": d["title"],
-                    "doc_id": d["doc_id"],
-                    "author": d["author"],
-                    "summary_content": d["content"]
+                    "title": r.title,
+                    "doc_id": r.doc_id,
+                    "department": r.department,
+                    "similarity_score": round(r.similarity_score, 4),
+                    "summary_content": r.content,
+                    "metadata": r.metadata
                 }
-                for d in results
+                for r in results
             ]
         }
 

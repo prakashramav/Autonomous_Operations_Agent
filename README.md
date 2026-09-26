@@ -142,7 +142,7 @@ Services started:
 
 - [x] **Phase 1: Core scaffold** (Monorepo structure, FastAPI `/chat` SSE streaming, Next.js App Router UI, Docker Compose).
 - [x] **Phase 2: Agent brain (LangGraph)** (Planner, ToolSelector, Executor, Validator, Human gate interrupt/resume, MemorySaver checkpointer).
-- [ ] **Phase 3: RAG over company documents** (Ingestion pipeline, pgvector similarity search, `search_company_docs` tool).
+- [x] **Phase 3: RAG over company documents** (Ingestion pipeline, 3072-dim vector embeddings, pgvector / embedded vector store, `search_company_docs` tool).
 - [ ] **Phase 4: MCP tool integrations** (Gmail, Drive, Slack, Calendar MCP servers, `create_task`).
 - [ ] **Phase 5: Safety & governance** (Human approval gate, role-based access control, structured audit logging).
 - [ ] **Phase 6: Observability & evaluation** (Agent tracing, evaluation test scenarios, hallucination benchmark).

@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
-from app.routers import chat
+from app.routers import chat, documents
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
@@ -20,8 +20,9 @@ app.add_middleware(
 
 # Include Routers
 app.include_router(chat.router, prefix=settings.API_V1_PREFIX)
-# Also include /chat directly without prefix for convenience
 app.include_router(chat.router, prefix="")
+app.include_router(documents.router, prefix=settings.API_V1_PREFIX)
+app.include_router(documents.router, prefix="")
 
 @app.get("/")
 async def root():
