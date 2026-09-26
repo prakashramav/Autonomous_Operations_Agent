@@ -141,7 +141,7 @@ Services started:
 ## 🗺️ Project Implementation Roadmap
 
 - [x] **Phase 1: Core scaffold** (Monorepo structure, FastAPI `/chat` SSE streaming, Next.js App Router UI, Docker Compose).
-- [ ] **Phase 2: Agent brain (LangGraph)** (Planner, ToolSelector, Executor, Validator, Human gate, short/long-term memory).
+- [x] **Phase 2: Agent brain (LangGraph)** (Planner, ToolSelector, Executor, Validator, Human gate interrupt/resume, MemorySaver checkpointer).
 - [ ] **Phase 3: RAG over company documents** (Ingestion pipeline, pgvector similarity search, `search_company_docs` tool).
 - [ ] **Phase 4: MCP tool integrations** (Gmail, Drive, Slack, Calendar MCP servers, `create_task`).
 - [ ] **Phase 5: Safety & governance** (Human approval gate, role-based access control, structured audit logging).
